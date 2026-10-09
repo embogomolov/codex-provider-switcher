@@ -53,11 +53,12 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Path dist | Out-Null
-          Copy-Item target/release/codex-provider-switcher.exe, README.md, LICENSE, assets -Destination dist -Recurse
-          $archive = 'codex-provider-switcher-windows-x64.zip'
-          Compress-Archive -Path dist/codex-provider-switcher.exe, dist/README.md, dist/LICENSE, dist/assets -DestinationPath "dist/$archive"
-          $hash = (Get-FileHash "dist/$archive" -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  $archive" | Set-Content "dist/$archive.sha256" -Encoding ascii
+          $executable = 'codex-provider-switcher.exe'
+          Copy-Item "target/release/$executable" -Destination dist
+          & "./dist/$executable" --help
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $hash = (Get-FileHash "dist/$executable" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $executable" | Set-Content "dist/$executable.sha256" -Encoding ascii
       - name: Package macOS
         if: runner.os == 'macOS'
         run: |
@@ -65,24 +66,27 @@ jobs:
           for target in aarch64-apple-darwin x86_64-apple-darwin; do
             cargo build --locked --release --target "$target"
           done
-          mkdir dist
+          mkdir -p dist target/package-root
           lipo -create target/aarch64-apple-darwin/release/codex-provider-switcher \
             target/x86_64-apple-darwin/release/codex-provider-switcher \
-            -output dist/codex-provider-switcher
-          chmod 755 dist/codex-provider-switcher
-          cp README.md LICENSE dist/
-          cp -R assets dist/
+            -output target/package-root/codex-provider-switcher
+          chmod 755 target/package-root/codex-provider-switcher
+          lipo target/package-root/codex-provider-switcher -verify_arch arm64 x86_64
+          version=$(awk -F '"' '/^version = / {print $2; exit}' Cargo.toml)
+          pkgbuild --root target/package-root --identifier io.github.embogomolov.codex-provider-switcher \
+            --version "$version" --install-location /usr/local/bin --ownership recommended \
+            dist/codex-provider-switcher-macos-universal.pkg
+          sudo installer -pkg dist/codex-provider-switcher-macos-universal.pkg -target /
+          cmp target/package-root/codex-provider-switcher /usr/local/bin/codex-provider-switcher
+          zsh -lc 'codex-provider-switcher --help'
           cd dist
-          COPYFILE_DISABLE=1 tar --uid 0 --gid 0 --uname= --gname= -czf \
-            codex-provider-switcher-macos-universal.tar.gz \
-            codex-provider-switcher README.md LICENSE assets/terminal.png assets/provider-selection.png
-          shasum -a 256 codex-provider-switcher-macos-universal.tar.gz > codex-provider-switcher-macos-universal.tar.gz.sha256
+          shasum -a 256 codex-provider-switcher-macos-universal.pkg > codex-provider-switcher-macos-universal.pkg.sha256
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ matrix.os }}
           path: |
-            dist/*.zip
-            dist/*.tar.gz
+            dist/*.exe
+            dist/*.pkg
             dist/*.sha256
           if-no-files-found: error
           compression-level: 0
@@ -109,4 +113,4 @@ jobs:
         run: |
           version=$(awk -F '"' '/^version = / {print $2; exit}' Cargo.toml)
           [ "$RELEASE_TAG" = "v$version" ] || { echo 'Tag must match Cargo version'; exit 1; }
-          gh release create "$RELEASE_TAG" dist/* --verify-tag --draft --title "$RELEASE_TAG" --notes "Windows x64 and macOS universal executables. Checksums are included with the archives."
+          gh release create "$RELEASE_TAG" dist/* --verify-tag --draft --title "$RELEASE_TAG" --notes "Windows x64 executable and macOS universal installer. On macOS, run codex-provider-switcher in Terminal after installation. The macOS installer is unsigned and not notarized. SHA-256 checksums are included."

@@ -4,33 +4,16 @@ A terminal user interface (TUI) for switching providers of saved Codex
 conversations and forks. Runs on Windows and macOS
 (Apple Silicon and Intel).
 
+[Windows EXE](https://github.com/embogomolov/codex-provider-switcher/releases/latest/download/codex-provider-switcher.exe)
+· [macOS PKG](https://github.com/embogomolov/codex-provider-switcher/releases/latest/download/codex-provider-switcher-macos-universal.pkg)
+
 ![Conversations with example data](assets/terminal.png)
-
-## Installation
-
-On Windows, extract `codex-provider-switcher-windows-x64.zip` and run
-`codex-provider-switcher.exe`, or start it from PowerShell:
-
-```powershell
-.\codex-provider-switcher.exe
-```
-
-On macOS, install the executable in your PATH:
-
-```sh
-tar -xzf codex-provider-switcher-macos-universal.tar.gz
-mkdir -p "$HOME/.local/bin"
-install -m 755 codex-provider-switcher "$HOME/.local/bin/codex-provider-switcher"
-export PATH="$HOME/.local/bin:$PATH"
-codex-provider-switcher
-```
-
-Add the `export` line to `~/.zshrc` to keep the PATH setting. The macOS build is
-not notarized by Apple.
 
 ## Usage
 
 Close Codex Desktop and CLI before saving changes.
+
+On macOS, start `codex-provider-switcher` in Terminal.
 
 Click conversations, providers and actions with the mouse, or use the keyboard:
 
@@ -70,6 +53,7 @@ This command also sets the default provider. Run `--help` for other options.
   recover. Leave pending files in place. Recovery files are temporary; the
   application does not keep permanent backups.
 - To use a different Codex directory, set `CODEX_HOME` or pass `--home PATH`.
+- The macOS installer is unsigned and not notarized by Apple.
 
 ## Development
 
