@@ -1,0 +1,33 @@
+[package]
+name = "codex-provider-switcher"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.96"
+publish = false
+license = "MIT"
+description = "Switch providers for saved Codex conversations from a terminal"
+
+[dependencies]
+base64 = "0.22"
+memchr = "2"
+memmap2 = "0.9"
+rayon = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
+toml_edit = { version = "0.25", features = ["serde"] }
+crossterm = "0.29"
+unicode-width = "0.2"
+filetime = "0.2"
+regex = "1"
+url = "2"
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Diagnostics_ToolHelp", "Win32_Storage_FileSystem"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

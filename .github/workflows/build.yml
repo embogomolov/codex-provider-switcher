@@ -1,0 +1,112 @@
+name: Build
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  RUSTUP_TOOLCHAIN: 1.96.0
+  CARGO_TERM_COLOR: always
+  TERM: xterm-256color
+  NO_COLOR: ''
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Install Rust
+        run: rustup toolchain install 1.96.0 --profile minimal --component clippy --component rustfmt
+      - name: Remap Windows build paths
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $flags = "-C target-feature=+crt-static --remap-path-prefix=$env:GITHUB_WORKSPACE=. --remap-path-prefix=$env:USERPROFILE=home"
+          "RUSTFLAGS=$flags" >> $env:GITHUB_ENV
+      - name: Remap macOS build paths
+        if: runner.os == 'macOS'
+        run: echo "RUSTFLAGS=--remap-path-prefix=$GITHUB_WORKSPACE=. --remap-path-prefix=$HOME=home" >> "$GITHUB_ENV"
+      - name: Formatting
+        run: cargo fmt --check
+      - name: Lint
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
+      - name: Unit tests
+        run: cargo test --locked
+      - name: Build production executable
+        run: cargo build --locked --release
+      - name: Package Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Path dist | Out-Null
+          Copy-Item target/release/codex-provider-switcher.exe, README.md, LICENSE, assets -Destination dist -Recurse
+          $archive = 'codex-provider-switcher-windows-x64.zip'
+          Compress-Archive -Path dist/codex-provider-switcher.exe, dist/README.md, dist/LICENSE, dist/assets -DestinationPath "dist/$archive"
+          $hash = (Get-FileHash "dist/$archive" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $archive" | Set-Content "dist/$archive.sha256" -Encoding ascii
+      - name: Package macOS
+        if: runner.os == 'macOS'
+        run: |
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          for target in aarch64-apple-darwin x86_64-apple-darwin; do
+            cargo build --locked --release --target "$target"
+          done
+          mkdir dist
+          lipo -create target/aarch64-apple-darwin/release/codex-provider-switcher \
+            target/x86_64-apple-darwin/release/codex-provider-switcher \
+            -output dist/codex-provider-switcher
+          chmod 755 dist/codex-provider-switcher
+          cp README.md LICENSE dist/
+          cp -R assets dist/
+          cd dist
+          COPYFILE_DISABLE=1 tar --uid 0 --gid 0 --uname= --gname= -czf \
+            codex-provider-switcher-macos-universal.tar.gz \
+            codex-provider-switcher README.md LICENSE assets/terminal.png assets/provider-selection.png
+          shasum -a 256 codex-provider-switcher-macos-universal.tar.gz > codex-provider-switcher-macos-universal.tar.gz.sha256
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ matrix.os }}
+          path: |
+            dist/*.zip
+            dist/*.tar.gz
+            dist/*.sha256
+          if-no-files-found: error
+          compression-level: 0
+
+  release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Prepare draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          version=$(awk -F '"' '/^version = / {print $2; exit}' Cargo.toml)
+          [ "$RELEASE_TAG" = "v$version" ] || { echo 'Tag must match Cargo version'; exit 1; }
+          gh release create "$RELEASE_TAG" dist/* --verify-tag --draft --title "$RELEASE_TAG" --notes "Windows x64 and macOS universal executables. Checksums are included with the archives."
